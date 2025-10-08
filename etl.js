@@ -1,10 +1,13 @@
-const sqlite3 = require('sqlite3').verbose();
+const mysql = require('mysql2/promise');
 
-const sourceDB = new sqlite3.Database('./source.db');
-const destDB = new sqlite3.Database('./destination.db');
+const runQuery = async (db, sql, params = []) => {
+    const [rows] = await db.execute(sql, params);
+    return rows;
+};
 
-const runQuery = (db, sql, params = []) => new Promise((resolve, reject) => db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows)));
-const runStatement = (db, sql, params = []) => new Promise((resolve, reject) => db.run(sql, params, function(err) { err ? reject(err) : resolve(this); }));
+const runStatement = async (db, sql, params = []) => {
+    await db.execute(sql, params);
+};
 
 const getDateKey = (dateStr) => {
     if (!dateStr) return null;
@@ -12,10 +15,24 @@ const getDateKey = (dateStr) => {
 };
 
 async function etlProcess() {
+    let sourceDB, destDB;
     try {
+        sourceDB = await mysql.createConnection({
+            host: 'host.docker.internal',
+            user: 'root',
+            password: '',
+            database: 'db_source'
+        });
+
+        destDB = await mysql.createConnection({
+            host: 'host.docker.internal',
+            user: 'root',
+            password: '',
+            database: 'db_datawarehouse'
+        });
+
         console.log('--- Starting Banking ETL Process ---');
-
-
+        
         console.log('Phase 1: Extracting data...');
         const [customers, accounts, transactions, loans, digital_logs, branches, atms] = await Promise.all([
             runQuery(sourceDB, 'SELECT * FROM customers'), runQuery(sourceDB, 'SELECT * FROM accounts'),
@@ -49,7 +66,7 @@ async function etlProcess() {
         }
 
         console.log('Loading Fact Tables...');
-        for (const t of transactions) await runStatement(destDB, 'INSERT INTO Fact_Transaction (transaction_key, date_key, customer_key, account_key, amount) VALUES (?, ?, ?, ?, ?)', [t.id, getDateKey(t.date), accountMap.get(t.account_id).customer_id, t.account_id, t.amount]);
+        for (const t of transactions) await runStatement(destDB, 'INSERT INTO Fact_Transaction (date_key, customer_key, account_key, amount) VALUES (?, ?, ?, ?)', [getDateKey(t.date), accountMap.get(t.account_id)?.customer_id, t.account_id, t.amount]);
         for (const l of loans) await runStatement(destDB, 'INSERT INTO Fact_Loan (loan_key, origination_date_key, customer_key, jumlah_pinjaman) VALUES (?, ?, ?, ?)', [l.id, getDateKey(l.origination_date), l.customer_id, l.principal_amount]);
 
         const snapshotDateKey = getDateKey('2025-10-31');
@@ -59,7 +76,7 @@ async function etlProcess() {
         }
 
         const atmTransactions = transactions.filter(t => t.channel === 'ATM');
-        for (const t of atmTransactions) await runStatement(destDB, 'INSERT INTO Fact_ATM_Usage (atm_usage_key, date_key, customer_key, atm_key, jumlah_transaksi_atm, total_uang_ditarik) VALUES (?, ?, ?, ?, ?, ?)', [t.id, getDateKey(t.date), accountMap.get(t.account_id).customer_id, t.atm_id, 1, Math.abs(t.amount)]);
+        for (const t of atmTransactions) await runStatement(destDB, 'INSERT INTO Fact_ATM_Usage (date_key, customer_key, atm_key, jumlah_transaksi_atm, total_uang_ditarik) VALUES (?, ?, ?, ?, ?)', [getDateKey(t.date), accountMap.get(t.account_id)?.customer_id, t.atm_id, 1, Math.abs(t.amount)]);
 
         const digitalSummary = {};
         digital_logs.forEach(log => {
@@ -72,13 +89,13 @@ async function etlProcess() {
             const summary = digitalSummary[key];
             await runStatement(destDB, 'INSERT INTO Fact_Internet_Banking (date_key, customer_key, jumlah_login, jumlah_transfer_online) VALUES (?, ?, ?, ?)', [getDateKey(summary.date), summary.customer_id, summary.logins, summary.transfers]);
         }
-
+        
         console.log('--- Banking ETL Process Completed Successfully ---');
     } catch (err) {
         console.error('ETL process failed:', err);
     } finally {
-        sourceDB.close();
-        destDB.close();
+        if (sourceDB) await sourceDB.end();
+        if (destDB) await destDB.end();
         console.log('All database connections closed.');
     }
 }

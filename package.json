@@ -1,16 +1,24 @@
 {
-  "dependencies": {
-    "sqlite3": "^5.1.7"
-  },
   "name": "kelompok-bi",
   "version": "1.0.0",
   "main": "etl.js",
-  "devDependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bukhrii/ETLkocak.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Bukhrii/ETLkocak/issues"
+  },
+  "homepage": "https://github.com/Bukhrii/ETLkocak#readme",
+  "description": "",
+  "dependencies": {
+    "mysql2": "^3.15.1"
+  }
 }

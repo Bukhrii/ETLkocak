@@ -1,0 +1,25 @@
+version: "3.9"
+services:
+  db:
+    image: :15
+    container_name: etl_heidisql
+    environment:
+      POSTGRES_USER: etluser
+      POSTGRES_PASSWORD: etlpass
+      POSTGRES_DB: etl_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  node_app:
+    build: .
+    container_name: etl_node
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://etluser:etlpass@db:5432/etl_db
+    command: ["node", "etl.js"]
+
+volumes:
+  postgres_data:
